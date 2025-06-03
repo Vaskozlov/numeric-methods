@@ -1,0 +1,124 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "Unix-cache-debug",
+      "displayName": "Unix cache debug with CPM cache directory",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "ON",
+        "MV_UNITY_BUILD": "ON",
+        "CPM_SOURCE_CACHE": "~/.cache/cpm",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "Unix-cache-release",
+      "displayName": "Unix cache release with CPM cache directory",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "OFF",
+        "MV_UNITY_BUILD": "ON",
+        "CPM_SOURCE_CACHE": "~/.cache/cpm",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "Unix-cache-debug-no-unity",
+      "displayName": "Unix cache debug with CPM cache directory without unity build",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "ON",
+        "MV_UNITY_BUILD": "OFF",
+        "MV_PRECOMPILED_HEADERS": "OFF",
+        "CPM_SOURCE_CACHE": "~/.cache/cpm",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "Unix-cache-release",
+      "displayName": "Unix cache release with CPM cache directory",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "OFF",
+        "MV_INCLUDE_TESTS": "OFF",
+        "MV_INCLUDE_BENCHMARK": "ON",
+        "MV_UNITY_BUILD": "ON",
+        "CPM_SOURCE_CACHE": "~/.cache/cpm",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "Debug-with-sanitizer",
+      "displayName": "Debug-with-sanitizer",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "ON",
+        "MV_UNITY_BUILD": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "Debug",
+      "displayName": "Debug",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "OFF",
+        "MV_INCLUDE_TESTS": "ON",
+        "MV_INCLUDE_BENCHMARK": "ON",
+        "MV_UNITY_BUILD": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "Release",
+      "displayName": "Release",
+      "description": "Sets build and install directories",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MV_ADDRESS_SANITIZER": "OFF",
+        "MV_UNITY_BUILD": "ON",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug",
+      "displayName": "Build with Debug configuration",
+      "description": "Build with Debug configuration"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug"
+    }
+  ]
+}
