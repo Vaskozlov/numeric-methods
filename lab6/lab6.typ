@@ -197,6 +197,8 @@ $
 
 = Код программы
 
+https://github.com/Vaskozlov/numeric-methods/tree/main/lab6
+
 #pagebreak()
 
 = Вывод

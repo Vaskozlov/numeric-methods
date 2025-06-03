@@ -1,13 +1,21 @@
+#include "glm/ext/matrix_float4x4.hpp"
+
 #include <deque>
 #include <imgui.h>
 #include <imgui_stdlib.h>
+#include <isl/linalg/linspace.hpp>
 #include <mv/application_2d.hpp>
 #include <mv/color.hpp>
 #include <mv/gl/axes_2d.hpp>
+#include <mv/gl/instances_holder.hpp>
 #include <mv/gl/shaders/color_shader.hpp>
+#include <mv/gl/shaders/shader_with_positioning.hpp>
+#include <mv/gl/shape/plot_2d.hpp>
 #include <mv/gl/shape/prism.hpp>
+#include <mv/gl/shape/sphere.hpp>
 #include <mv/shader.hpp>
 #include <mvl/mvl.hpp>
+#include <valarray>
 
 class DifferentialEquations : public mv::Application2D
 {
@@ -18,15 +26,25 @@ class DifferentialEquations : public mv::Application2D
 
     std::array<char, windowTitleBufferSize> imguiWindowBuffer{};
     std::string input{"y + (1 + x) * y * y"};
+    std::string realFunction = "-1/x";
 
     mv::gl::shape::Prism prism{0.03F, 20.0F, 4};
     mv::gl::shape::Axes2D plot{12, 0.009F};
+    mv::gl::shape::Plot2D functionPlot;
+    mv::gl::shape::Sphere sphere{1.0F};
+
+    mv::gl::InstancesHolder<mv::gl::InstanceParameters> spheres;
+
+    std::valarray<float> functionX;
+    std::valarray<float> functionY;
 
     mv::Shader *colorShader = mv::gl::getColorShader();
+    mv::Shader *shaderWithPositioning = mv::gl::getShaderWithPositioning();
 
     ImFont *font{};
     double pressTime = 0.0;
     float fontScale = 0.5F;
+    float sphereRadius = 0.04F;
 
     float leftX = 1.0F;
     float rightX = 1.5F;
@@ -48,6 +66,17 @@ public:
         plot.loadData();
         plot.vbo.bind();
         plot.vao.bind(0, 3, GL_FLOAT, sizeof(glm::vec3), 0);
+
+        functionPlot.loadData();
+        functionPlot.vbo.bind();
+        functionPlot.vao.bind(0, 3, GL_FLOAT, sizeof(glm::vec3), 0);
+
+        sphere.loadData();
+        sphere.vbo.bind();
+        sphere.vao.bind(0, 3, GL_FLOAT, sizeof(glm::vec3), 0);
+
+        spheres.vbo.bind();
+        sphere.vao.bindInstanceParameters(1, 1);
 
         font = loadFont();
 
@@ -72,20 +101,35 @@ public:
         ImGui::SetWindowFontScale(fontScale);
 
         ImGui::InputText("Equation", &input);
-
-        if (ImGui::Button("Compute")) {
-            solveSimpleEuler();
-            solveRungeKutta();
-            solveMilna();
-        }
+        ImGui::InputText("Real function", &realFunction);
 
         ImGui::SliderFloat("Left x", &leftX, -10.0F, rightX);
         ImGui::SliderFloat("Right x", &rightX, leftX, 10.0F);
         ImGui::SliderFloat("Step (h)", &step, 1e-4F, 1.0F);
         ImGui::SliderFloat("Epsilon", &epsilon, 1e-6F, 1e-1F, "%.1e");
 
+        if (ImGui::SliderFloat("Radius", &sphereRadius, 0.1F, 2.0F)) {
+            drawFunction();
+        }
+
         const auto start_condition_text = fmt::format("y({})", leftX);
         ImGui::InputFloat(start_condition_text.c_str(), &startY);
+
+        if (ImGui::Button("Compute")) {
+            spheres.models.clear();
+
+            solveSimpleEuler();
+            solveRungeKutta();
+            solveMilna();
+
+            spheres.loadData();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Draw")) {
+            drawFunction();
+        }
 
         ImGui::PopFont();
         ImGui::End();
@@ -103,11 +147,22 @@ public:
 
         plot.draw();
 
+        colorShader->setMat4("model", glm::mat4(1.0F));
+
+        colorShader->setVec4("elementColor", mv::Color::ORANGE);
+        functionPlot.draw();
+
         colorShader->setVec4("elementColor", mv::Color::FOREST);
         prism.drawAt(*colorShader, {leftX, 0.0F, 0.0F});
 
         colorShader->setVec4("elementColor", mv::Color::NAVY);
         prism.drawAt(*colorShader, {rightX, 0.0F, 0.0F});
+
+        shaderWithPositioning->use();
+
+        sphere.vao.bind();
+        shaderWithPositioning->setMat4("projection", viewMatrix);
+        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, sphere.vertices.size(), spheres.models.size());
     }
 
     auto processInput() -> void override
@@ -151,6 +206,31 @@ public:
     }
 
 private:
+    auto addSphere(
+        std::vector<mv::gl::InstanceParameters> &container, const mv::Color color,
+        const glm::vec3 position, const float scale = 1.0F) const -> void
+    {
+        container.emplace_back(
+            color,
+            glm::scale(glm::translate(glm::mat4(1.0F), position), glm::vec3{sphereRadius * scale}));
+    }
+
+    auto drawFunction() -> void
+    {
+        const auto function_copy = realFunction;
+        functionX = isl::linalg::linspace(leftX, rightX, 500);
+        functionY.resize(functionX.size());
+
+        auto root = mvl::constructRoot(function_copy);
+
+        for (std::size_t i = 0; i < functionX.size(); ++i) {
+            functionY[i] = static_cast<float>(root->compute(functionX[i], 0.0));
+        }
+
+        functionPlot.fill(functionX, functionY);
+        functionPlot.loadData();
+    }
+
     auto doRungeKuttaIteration(const mvl::ast::MathNode *equation, const float x, const float y)
         -> std::tuple<float, float, float, float, float>
     {
@@ -194,11 +274,14 @@ private:
                 equation->compute(static_cast<double>(x), static_cast<double>(y)));
 
             fmt::println("{:>4} {:>8.3} {:>8.3} {:>12.3}", iteration, x, y, f);
+            addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
 
             y = y + step * f;
             x += step;
             ++iteration;
         }
+
+        addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
     }
 
     auto solveRungeKutta() -> void
@@ -226,6 +309,8 @@ private:
                 k2,
                 k3,
                 k4);
+
+            addSphere(spheres.models, mv::Color::AQUA, {x, y, 0.0F});
 
             y = new_y;
             x += step;
@@ -255,6 +340,8 @@ private:
             fmt::println(
                 "{:>4} {:>8.3} {:>8.3} {:>8.3} ", iteration, x, y, equation->compute(x, y));
 
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+
             y_values.emplace_front(new_y);
             f_values.emplace_front(equation->compute(x + step, new_y));
 
@@ -262,6 +349,8 @@ private:
             x += step;
             ++iteration;
         }
+
+        addSphere(spheres.models, mv::Color::CYAN, {x, y, 0.0F});
 
         fmt::println("Iterations with correction");
 
@@ -276,8 +365,8 @@ private:
             do {
                 predicted_y = corrected_y;
 
-                const auto f = static_cast<float>(
-                    equation->compute(static_cast<double>(x + step), static_cast<double>(predicted_y)));
+                const auto f = static_cast<float>(equation->compute(
+                    static_cast<double>(x + step), static_cast<double>(predicted_y)));
 
                 corrected_y =
                     y_values.at(1) + step / 3.0F * (f_values.at(1) + 4 * f_values.at(0) + f);
@@ -287,10 +376,11 @@ private:
             f_values.pop_back();
 
             y_values.emplace_front(corrected_y);
-            f_values.emplace_front(static_cast<float>(
-                equation->compute(static_cast<double>(x + step), static_cast<double>(corrected_y))));
+            f_values.emplace_front(static_cast<float>(equation->compute(
+                static_cast<double>(x + step), static_cast<double>(corrected_y))));
 
             fmt::println("{:>4} {:>8.3} {:>8.3} {:>12.3}", iteration, x, y, f_values.front());
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
 
             y = corrected_y;
             x += step;
