@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <imgui_stdlib.h>
 #include <isl/linalg/linspace.hpp>
+#include <limits>
 #include <mv/application_2d.hpp>
 #include <mv/color.hpp>
 #include <mv/gl/axes_2d.hpp>
@@ -51,6 +52,8 @@ class DifferentialEquations : public mv::Application2D
     float step = 0.2F;
     float epsilon = 1e-4F;
     float startY = -1.0F;
+
+    std::array<bool, 3> showMethods{true, true, true};
 
 public:
     using Application2D::Application2D;
@@ -116,19 +119,25 @@ public:
         ImGui::InputFloat(start_condition_text.c_str(), &startY);
 
         if (ImGui::Button("Compute")) {
-            spheres.models.clear();
-
-            solveSimpleEuler();
-            solveRungeKutta();
-            solveMilna();
-
-            spheres.loadData();
+            compute();
         }
 
         ImGui::SameLine();
 
         if (ImGui::Button("Draw")) {
             drawFunction();
+        }
+
+        if (ImGui::Checkbox("Show Euler", &showMethods[0])) {
+            compute();
+        }
+
+        if (ImGui::Checkbox("Show Runge-Kutta", &showMethods[1])) {
+            compute();
+        }
+
+        if (ImGui::Checkbox("Show Milna", &showMethods[2])) {
+            compute();
         }
 
         ImGui::PopFont();
@@ -163,6 +172,40 @@ public:
         sphere.vao.bind();
         shaderWithPositioning->setMat4("projection", viewMatrix);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, sphere.vertices.size(), spheres.models.size());
+    }
+
+    auto compute() -> void
+    {
+        spheres.models.clear();
+
+        try {
+            const auto h = step;
+
+            if (showMethods[0]) {
+                const auto first = solveSimpleEuler();
+                step /= 2.0F;
+                const auto second = solveSimpleEuler(false);
+
+                fmt::println("Euler method r: {:e}", (first - second) / (2.0F - 1.0F));
+                step = h;
+            }
+
+            if (showMethods[1]) {
+                const auto first = solveRungeKutta();
+                step /= 2.0F;
+                const auto second = solveRungeKutta(false);
+
+                fmt::println("Runge-Kutta method r: {:e}", (first - second) / (16.0F - 1.0F));
+                step = h;
+            }
+
+            if (showMethods[2]) {
+                solveMilna();
+            }
+        } catch (...) {
+        }
+
+        spheres.loadData();
     }
 
     auto processInput() -> void override
@@ -257,7 +300,7 @@ private:
         return std::make_tuple(new_y, k1, k2, k3, k4);
     }
 
-    auto solveSimpleEuler() -> void
+    auto solveSimpleEuler(bool add_spheres = true) -> float
     {
         const auto xEnd = rightX;
         auto x = leftX;
@@ -266,25 +309,75 @@ private:
         auto equation = mvl::constructRoot(input_copy);
         std::size_t iteration = 0;
 
-        fmt::println("Solving simple Euler:");
-        fmt::println("{:>4} {:>8} {:>8} {:>12}", "i", "x_i", "y_i", "f(x_i, y_i)");
+        const auto real_function_copy = realFunction;
+        ccl::parser::ast::SharedNode<mvl::ast::MathNode> real_root;
 
-        while (x < xEnd + step) {
+        try {
+            real_root = mvl::constructRoot(real_function_copy);
+        } catch (...) {
+        }
+
+        if (add_spheres) {
+            fmt::println("Solving simple Euler:");
+            fmt::println(
+                "{:>4} {:>8} {:>8} {:>12} {:>8} {:>8}",
+                "i",
+                "x_i",
+                "y_i",
+                "f(x_i, y_i)",
+                "Δ",
+                "ΔC");
+        }
+
+        while (x <= xEnd) {
             const auto f = static_cast<float>(
                 equation->compute(static_cast<double>(x), static_cast<double>(y)));
 
-            fmt::println("{:>4} {:>8.3} {:>8.3} {:>12.3}", iteration, x, y, f);
-            addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
+            if (add_spheres) {
+                const auto h = step;
+                const auto border = rightX;
+
+                rightX = x;
+                step /= 2.0f;
+
+                fmt::println(
+                    "{:>4} {:>8.3} {:>8.3} {:>12.3} {:>8.3} {:>8.3}",
+                    iteration,
+                    x,
+                    y,
+                    f,
+                    real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                         : std::abs(y - real_root->compute(x, 0)),
+                    (y - solveSimpleEuler(false)) / (2.0F - 1.0F));
+
+                step = h;
+                rightX = border;
+                addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
+            }
 
             y = y + step * f;
             x += step;
             ++iteration;
         }
 
-        addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
+        if (add_spheres) {
+            addSphere(spheres.models, mv::Color::MAGENTA, {x, y, 0.0F});
+
+            fmt::println(
+                "{:>4} {:>8.3} {:>8.3} {:>8.3}",
+                iteration,
+                x,
+                y,
+                real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                     : std::abs(y - real_root->compute(x, 0)));
+
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+        }
+
+        return y;
     }
 
-    auto solveRungeKutta() -> void
+    auto solveRungeKutta(bool add_spheres = true) -> float
     {
         const auto xEnd = rightX;
         auto x = leftX;
@@ -293,32 +386,78 @@ private:
         auto equation = mvl::constructRoot(input_copy);
         std::size_t iteration = 0;
 
-        fmt::println("Solving Runge-Kutta:");
-        fmt::println(
-            "{:>4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}", "i", "x_i", "y_i", "k1", "k2", "k3", "k4");
+        const auto real_function_copy = realFunction;
+        ccl::parser::ast::SharedNode<mvl::ast::MathNode> real_root;
 
-        while (x < xEnd + step) {
+        try {
+            real_root = mvl::constructRoot(real_function_copy);
+        } catch (...) {
+        }
+
+        if (add_spheres) {
+            fmt::println("Solving Runge-Kutta:");
+            fmt::println(
+                "{:>4} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                "i",
+                "x_i",
+                "y_i",
+                "k1",
+                "k2",
+                "k3",
+                "k4",
+                "Δ",
+                "ΔC");
+        }
+
+        while (x <= xEnd) {
             auto [new_y, k1, k2, k3, k4] = doRungeKuttaIteration(equation.get(), x, y);
 
-            fmt::println(
-                "{:>4} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3}",
-                iteration,
-                x,
-                y,
-                k1,
-                k2,
-                k3,
-                k4);
+            if (add_spheres) {
+                const auto h = step;
+                const auto border = rightX;
 
-            addSphere(spheres.models, mv::Color::AQUA, {x, y, 0.0F});
+                rightX = x;
+                step /= 2.0F;
+
+                fmt::println(
+                    "{:>4} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3}",
+                    iteration,
+                    x,
+                    y,
+                    k1,
+                    k2,
+                    k3,
+                    k4,
+                    real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                         : std::abs(y - real_root->compute(x, 0)),
+                    (y - solveRungeKutta(false)) / (16.0F - 1.0F));
+
+                step = h;
+                rightX = border;
+                addSphere(spheres.models, mv::Color::AQUA, {x, y, 0.0F});
+            }
 
             y = new_y;
             x += step;
             ++iteration;
         }
+
+        if (add_spheres) {
+            fmt::println(
+                "{:>4} {:>8.3} {:>8.3} {:>8.3}",
+                iteration,
+                x,
+                y,
+                real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                     : std::abs(y - real_root->compute(x, 0)));
+
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+        }
+
+        return y;
     }
 
-    auto solveMilna() -> void
+    auto solveMilna(bool add_spheres = true) -> float
     {
         const auto xEnd = rightX;
         auto x = leftX;
@@ -330,17 +469,35 @@ private:
         std::deque<float> y_values{y};
         std::deque<float> f_values{static_cast<float>(equation->compute(x, y))};
 
-        fmt::println("Solving Milna:");
-        fmt::println("Solving simple Euler:");
-        fmt::println("{:>4} {:>8} {:>8} {:>12}", "i", "x_i", "y_i", "f(x_i, y_i)");
+        const auto real_function_copy = realFunction;
+        ccl::parser::ast::SharedNode<mvl::ast::MathNode> real_root;
 
-        while (x < xEnd + step && iteration < 3) {
+        try {
+            real_root = mvl::constructRoot(real_function_copy);
+        } catch (...) {
+        }
+
+        if (add_spheres) {
+            fmt::println("Solving Milna:");
+            fmt::println("Solving Runge-Kutta:");
+            fmt::println("{:>4} {:>8} {:>8} {:>12} {:>8}", "i", "x_i", "y_i", "f(x_i, y_i)", "Δ");
+        }
+
+        while (x <= xEnd && iteration < 3) {
             auto [new_y, k1, k2, k3, k4] = doRungeKuttaIteration(equation.get(), x, y);
 
-            fmt::println(
-                "{:>4} {:>8.3} {:>8.3} {:>8.3} ", iteration, x, y, equation->compute(x, y));
+            if (add_spheres) {
+                fmt::println(
+                    "{:>4} {:>8.3} {:>8.3} {:>12.3} {:>8.3}",
+                    iteration,
+                    x,
+                    y,
+                    equation->compute(x, y),
+                    real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                         : std::abs(y - real_root->compute(x, 0)));
 
-            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+                addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+            }
 
             y_values.emplace_front(new_y);
             f_values.emplace_front(equation->compute(x + step, new_y));
@@ -350,11 +507,13 @@ private:
             ++iteration;
         }
 
-        addSphere(spheres.models, mv::Color::CYAN, {x, y, 0.0F});
+        if (add_spheres) {
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
 
-        fmt::println("Iterations with correction");
+            fmt::println("Iterations with correction");
+        }
 
-        while (x < xEnd + step) {
+        while (x <= xEnd) {
             auto predicted_y =
                 y_values.at(3)
                 + 4.0F / 3.0F * step
@@ -379,13 +538,38 @@ private:
             f_values.emplace_front(static_cast<float>(equation->compute(
                 static_cast<double>(x + step), static_cast<double>(corrected_y))));
 
-            fmt::println("{:>4} {:>8.3} {:>8.3} {:>12.3}", iteration, x, y, f_values.front());
-            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+            if (add_spheres) {
+                fmt::println(
+                    "{:>4} {:>8.3} {:>8.3} {:>12.3} {:>8.3}",
+                    iteration,
+                    x,
+                    y,
+                    f_values.front(),
+                    real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                         : std::abs(y - real_root->compute(x, 0)));
+
+                addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+            }
 
             y = corrected_y;
             x += step;
             ++iteration;
         }
+
+        if (add_spheres) {
+            fmt::println(
+                "{:>4} {:>8.3} {:>8.3} {:>12.3} {:>8.3}",
+                iteration,
+                x,
+                y,
+                f_values.front(),
+                real_root == nullptr ? std::numeric_limits<double>::quiet_NaN()
+                                     : std::abs(y - real_root->compute(x, 0)));
+
+            addSphere(spheres.models, mv::Color::RED, {x, y, 0.0F});
+        }
+
+        return y;
     }
 };
 
