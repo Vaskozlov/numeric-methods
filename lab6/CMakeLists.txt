@@ -10,17 +10,17 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang|GNU")
     target_compile_options(num-method-lab6 PRIVATE -march=native)
 endif ()
 
-isl_set_target_flags(
-        num-method-lab6
-       OFF
-        ""
-        ""
-        ""
-        ""
-        OFF
-        OFF
-        ON
-)
+# isl_set_target_flags(
+#         num-method-lab6
+#        OFF
+#         ""
+#         ""
+#         ""
+#         ""
+#         OFF
+#         OFF
+#         ON
+# )
 
 target_link_libraries(
         num-method-lab6
